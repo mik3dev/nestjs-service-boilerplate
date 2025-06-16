@@ -1,8 +1,8 @@
 {
   "name": "aw-payments-payouts-service",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "Andean Wide Payments Service - Payouts Service",
+  "author": "Andean Wide Capital",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -21,8 +21,17 @@
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/mapped-types": "^2.1.0",
+    "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "joi": "^17.13.3",
+    "mongoose": "^8.16.0",
+    "nestjs-authentication-module": "0.1.2-0",
+    "nestjs-mongoose-repository-module": "1.0.1-0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
