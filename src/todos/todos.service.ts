@@ -16,8 +16,8 @@ export class TodosService {
     return await this.todoRepository.find(filter);
   }
 
-  async create(createDto: CreateTodoDto) {
-    return await this.todoRepository.create(createDto);
+  async create(userId: string, createDto: CreateTodoDto) {
+    return await this.todoRepository.create({ ...createDto, userId });
   }
 
   async findOne(filter: FilterQuery<Todo>) {

@@ -8,6 +8,9 @@ export type TodoDocument = HydratedDocument<Todo>;
   timestamps: true,
 })
 export class Todo {
+  @Prop({ required: true })
+  userId: string;
+
   @Prop({ required: true, trim: true })
   title: string;
 
