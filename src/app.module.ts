@@ -16,7 +16,12 @@ import { TodosModule } from './todos/todos.module';
         PORT: Joi.number().default(3000),
         API_PREFIX: Joi.string().default('api'),
         MONGODB_URI: Joi.string().required(),
-        JWKS_URL: Joi.string().required(),
+        JWKS_URL: Joi.string().optional(),
+        JWT_PUBLIC_KEY: Joi.string().when('JWKS_URL', {
+          is: Joi.exist(),
+          then: Joi.string().optional(),
+          otherwise: Joi.string().required(),
+        }),
         JWT_ISSUER: Joi.string().required(),
         JWT_AUDIENCE: Joi.string().required(),
       }),
@@ -29,11 +34,20 @@ import { TodosModule } from './todos/todos.module';
     }),
     AuthenticationClientModule.registerAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        jwksUrl: configService.get<string>('JWKS_URL'),
-        issuer: configService.get<string>('JWT_ISSUER') as string,
-        audience: configService.get<string>('JWT_AUDIENCE') as string,
-      }),
+      useFactory: (configService: ConfigService) => {
+        if (configService.get('JWKS_URL')) {
+          return {
+            jwksUrl: configService.get<string>('JWKS_URL'),
+            issuer: configService.get<string>('JWT_ISSUER') as string,
+            audience: configService.get<string>('JWT_AUDIENCE') as string,
+          };
+        }
+        return {
+          publicKey: configService.get<string>('JWT_PUBLIC_KEY'),
+          issuer: configService.get<string>('JWT_ISSUER') as string,
+          audience: configService.get<string>('JWT_AUDIENCE') as string,
+        };
+      },
     }),
     TodosModule,
   ],
