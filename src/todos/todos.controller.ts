@@ -9,12 +9,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { TodosService } from './todos.service';
-import { GetUser, JwtAuthGuard } from 'nestjs-authentication-module';
+import { GetUser, JwtClientAuthGuard } from 'nestjs-authentication-module';
 import { UserPayload } from '../interfaces/user-payload.interface';
 import { CreateTodoDto } from 'src/dtos/create-todo.dto';
 import { UpdateTodoDto } from 'src/dtos/uptdate-todo.dto';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtClientAuthGuard)
 @Controller('todos')
 export class TodosController {
   constructor(private readonly todosService: TodosService) {}
