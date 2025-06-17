@@ -7,8 +7,23 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 # Development stage
 FROM base AS development
 
+# Copy package files to detect package manager
 COPY package*.json ./
-RUN npm ci
+COPY pnpm-lock.yaml* yarn.lock* package-lock.json* ./
+
+# Setup the right package manager with install command
+RUN if [ -f "yarn.lock" ]; then \
+  echo "Using Yarn" && \
+  npm install -g yarn && \
+  yarn install --frozen-lockfile; \
+  elif [ -f "pnpm-lock.yaml" ]; then \
+  echo "Using pnpm" && \
+  npm install -g pnpm && \
+  pnpm install --frozen-lockfile; \
+  else \
+  echo "Using npm" && \
+  npm ci; \
+  fi
 
 COPY --chown=appuser:appgroup . .
 
@@ -27,8 +42,24 @@ ENV NODE_ENV=${NODE_ENV} \
 
 # Copy package files and install production dependencies only
 COPY package*.json ./
-RUN npm ci --only=production && \
-  npm cache clean --force && \
+COPY pnpm-lock.yaml* yarn.lock* package-lock.json* ./
+
+# Install dependencies with the appropriate package manager
+RUN if [ -f "yarn.lock" ]; then \
+  echo "Using Yarn for production" && \
+  npm install -g yarn && \
+  yarn install --production --frozen-lockfile && \
+  yarn cache clean; \
+  elif [ -f "pnpm-lock.yaml" ]; then \
+  echo "Using pnpm for production" && \
+  npm install -g pnpm && \
+  pnpm install --prod && \
+  pnpm store prune; \
+  else \
+  echo "Using npm for production" && \
+  npm ci --only=production && \
+  npm cache clean --force; \
+  fi && \
   rm -rf /tmp/*
 
 COPY --from=development --chown=appuser:appgroup /usr/src/app/dist ./dist
