@@ -26,6 +26,7 @@ env:
   PAT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   FILE_PATH: path/to/yaml/file
   PROPERTY_PATH: path/to/property
+  STORE_PATH:
 
 jobs:
   test:
@@ -35,20 +36,39 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install
 
       - name: Run linting
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Run tests
-        run: npm run test
+        run: pnpm run test
 
   build:
     name: Build
@@ -178,7 +198,7 @@ jobs:
         run: |
           BRANCH="${{ needs.build.outputs.branch }}"
           echo "Branch: $BRANCH"
-          
+
           if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
             echo "deploy_repo=${{ env.DEPLOY_REPO_PRD }}" >> $GITHUB_OUTPUT
           elif [[ "$BRANCH" == "uat" ]]; then
@@ -191,7 +211,7 @@ jobs:
             echo "deploy_repo=${{ env.DEPLOY_REPO_DEV }}" >> $GITHUB_OUTPUT
             echo "Warning: Using develop deployment repository as fallback for branch: $BRANCH"
           fi
-          
+
           echo "Selected deployment repository: $(cat $GITHUB_OUTPUT | grep deploy_repo)"
 
       # Checkout the deployment repository
@@ -211,7 +231,7 @@ jobs:
           PROPERTY_PATH="${{ env.PROPERTY_PATH }}"
           # The new version from the build job
           NEW_VERSION="${{ needs.build.outputs.new_version }}"
-          
+
           echo "Updating file: $FILE_PATH, property: $PROPERTY_PATH with version: $NEW_VERSION"
 
           # Check if file exists
