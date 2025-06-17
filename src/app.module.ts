@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AuthenticationClientModule } from 'nestjs-authentication-module';
 import * as Joi from 'joi';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AuthenticationClientModule } from 'nestjs-authentication-module';
 import { TodosModule } from './todos/todos.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { TodosModule } from './todos/todos.module';
       },
     }),
     TodosModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
