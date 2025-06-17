@@ -6,7 +6,6 @@ import * as Joi from 'joi';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { TodosModule } from './todos/todos.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -50,7 +49,6 @@ import { HealthModule } from './health/health.module';
         };
       },
     }),
-    TodosModule,
     HealthModule,
   ],
   controllers: [AppController],
