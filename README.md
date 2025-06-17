@@ -17,7 +17,20 @@
 
 ## Quick Start
 
-The fastest way to start a new project is with [degit](https://github.com/Rich-Harris/degit):
+The fastest way to start a new project is with [degit](https://github.com/Rich-Harris/degit). Make sure you have degit installed from npmjs.com:
+
+```bash
+# Install degit globally (if not already installed)
+npm install -g degit
+
+# Create a new project from the boilerplate
+degit mik3dev/nestjs-service-boilerplate my-new-project
+cd my-new-project
+npm install
+npm run start:dev
+```
+
+Alternatively, you can use npx without installing degit globally:
 
 ```bash
 npx degit mik3dev/nestjs-service-boilerplate my-new-project
