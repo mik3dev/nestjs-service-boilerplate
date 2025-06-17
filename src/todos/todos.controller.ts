@@ -11,8 +11,8 @@ import {
 import { TodosService } from './todos.service';
 import { GetUser, JwtClientAuthGuard } from 'nestjs-authentication-module';
 import { UserPayload } from '../interfaces/user-payload.interface';
-import { CreateTodoDto } from 'src/dtos/create-todo.dto';
-import { UpdateTodoDto } from 'src/dtos/uptdate-todo.dto';
+import { CreateTodoDto } from '../dtos/create-todo.dto';
+import { UpdateTodoDto } from '../dtos/uptdate-todo.dto';
 
 @UseGuards(JwtClientAuthGuard)
 @Controller('todos')
