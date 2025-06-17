@@ -18,7 +18,7 @@ env:
   DOCKER_REGISTRY: ghcr.io
   DOCKER_USERNAME: ${{ github.repository_owner }}
   DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-  IMAGE_NAME: image
+  IMAGE_NAME: aw-payments-service-identity
   DEPLOY_REPO_PRD: https://github.com/user/production
   DEPLOY_REPO_UAT: https://github.com/user/uat
   DEPLOY_REPO_SANDBOX: https://github.com/user/sandbox
@@ -87,14 +87,32 @@ jobs:
         id: get-branch
         run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: 22
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install
 
       - name: Get current version
         id: package-version
@@ -152,7 +170,7 @@ jobs:
 
       - name: Update package.json version
         run: |
-          npm version ${{ steps.calculate-version.outputs.new_version }} --no-git-tag-version --allow-same-version
+          pnpm version ${{ steps.calculate-version.outputs.new_version }} --no-git-tag-version --allow-same-version
 
       - name: Configure Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -164,21 +182,26 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
+      - name: Create lowercase owner name
+        id: lowercase-owner
+        run: echo "owner=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.calculate-version.outputs.new_version }}
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ steps.get-branch.outputs.branch }}
-          cache-from: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+            ${{ env.DOCKER_REGISTRY }}/${{ steps.lowercase-owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ steps.calculate-version.outputs.new_version }}
+            ${{ env.DOCKER_REGISTRY }}/${{ steps.lowercase-owner.outputs.owner }}/${{ env.IMAGE_NAME }}:latest-${{ steps.get-branch.outputs.branch }}
+          cache-from: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ steps.lowercase-owner.outputs.owner }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ steps.lowercase-owner.outputs.owner }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
-      - name: Create Git Tag
+      - name: Create Git Tag (Production Only)
+        if: ${{ steps.get-branch.outputs.branch == 'main' || steps.get-branch.outputs.branch == 'master' }}
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "soporte@andeanwide.com"
+          git config --local user.name "Soporte Andean Wide"
           git tag -a v${{ steps.calculate-version.outputs.new_version }} -m "Release v${{ steps.calculate-version.outputs.new_version }}"
           git push origin v${{ steps.calculate-version.outputs.new_version }}
 
