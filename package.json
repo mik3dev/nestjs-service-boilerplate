@@ -1,8 +1,8 @@
 {
-  "name": "aw-payments-payouts-service",
+  "name": "nestjs-boilerplate",
   "version": "0.0.1",
-  "description": "Andean Wide Payments Service - Payouts Service",
-  "author": "Andean Wide Capital",
+  "description": "NestJS boilerplate",
+  "author": "mik3dev",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {

@@ -45,13 +45,6 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget -qO- http://localhost:${PORT}/health || exit 1
 
-# Add container metadata
-LABEL org.opencontainers.image.vendor="AndeanWide" \
-  org.opencontainers.image.title="AW Payments Payouts Service" \
-  org.opencontainers.image.description="Payments and Payouts Service for AndeanWide" \
-  org.opencontainers.image.created="$(date -u "%Y-%m-%dT%H:%M:%SZ")" \
-  org.opencontainers.image.version="1.0" \
-  org.opencontainers.image.source="https://github.com/andeanwide/aw-payments-service"
 
 EXPOSE ${PORT}
 
