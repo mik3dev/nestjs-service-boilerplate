@@ -124,53 +124,36 @@ jobs:
           CURRENT_VERSION=${{ steps.package-version.outputs.version }}
           BRANCH=${GITHUB_REF#refs/heads/}
 
-          # Split version into major.minor.patch
-          VERSION_PARTS=(${CURRENT_VERSION//./ })
-          MAJOR=${VERSION_PARTS[0]}
-          MINOR=${VERSION_PARTS[1]}
-
-          # Extract base patch version without any suffix
-          FULL_PATCH=${VERSION_PARTS[2]}
-          PATCH=$(echo $FULL_PATCH | cut -d'-' -f1)
-
           if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
-            # For main/master, increment patch version
-            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            # For production, use semantic version from package.json
+            NEW_VERSION="$CURRENT_VERSION"
+          elif [[ "$BRANCH" == "uat" ]]; then
+            # For UAT, use semantic version with uat tag and build number
+            NEW_VERSION="$CURRENT_VERSION-uat.${{ github.run_number }}"
+          elif [[ "$BRANCH" == "sandbox" ]]; then
+            # For sandbox, use semantic version with sandbox tag and build number
+            NEW_VERSION="$CURRENT_VERSION-sandbox.${{ github.run_number }}"
           else
-            # For other branches, add suffix with environment name
-            
-            # Check if we're already on a versioned branch
-            if [[ "$BRANCH" == "develop" ]]; then
-              ENV_PREFIX="dev"
-            elif [[ "$BRANCH" == "uat" ]]; then
-              ENV_PREFIX="uat"
-            elif [[ "$BRANCH" == "sandbox" ]]; then
-              ENV_PREFIX="sbx"
-            else
-              ENV_PREFIX="dev" # Default fallback
-            fi
-            
-            # Get all tags that match the current version with this environment prefix
-            git fetch --tags
-            LATEST_SUB_VERSION=$(git tag -l "$MAJOR.$MINOR.$((PATCH + 1))-$ENV_PREFIX.*" | sort -V | tail -n 1)
-            
-            if [[ -z "$LATEST_SUB_VERSION" ]]; then
-              SUB_VERSION=0
-            else
-              # Extract the sub-version number
-              SUB_VERSION=$(echo $LATEST_SUB_VERSION | sed -E "s/.*-$ENV_PREFIX\.([0-9]+)$/\1/")
-              SUB_VERSION=$((SUB_VERSION + 1))
-            fi
-            
-            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))-$ENV_PREFIX.$SUB_VERSION"
+            # For develop and all other branches, use semantic version with dev tag and build number
+            NEW_VERSION="$CURRENT_VERSION-dev.${{ github.run_number }}"
           fi
 
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "New version: $NEW_VERSION"
 
-      - name: Update package.json version
+      # This step only runs on main/master and updates package.json version
+      # The [skip ci] tag prevents this commit from triggering another workflow
+      - name: Update package.json version (Production only)
+        if: ${{ steps.get-branch.outputs.branch == 'main' || steps.get-branch.outputs.branch == 'master' }}
         run: |
-          pnpm version ${{ steps.calculate-version.outputs.new_version }} --no-git-tag-version --allow-same-version
+          # Only update production version with a clean semantic version
+          pnpm version ${{ steps.calculate-version.outputs.new_version }} --no-git-tag-version
+
+          git config --local user.email "soporte@andeanwide.com"
+          git config --local user.name "Soporte Andean Wide"
+          git add package.json
+          git commit -m "chore: bump version to ${{ steps.calculate-version.outputs.new_version }} [skip ci]"
+          git push origin ${{ steps.get-branch.outputs.branch }}
 
       - name: Configure Docker Buildx
         uses: docker/setup-buildx-action@v3
