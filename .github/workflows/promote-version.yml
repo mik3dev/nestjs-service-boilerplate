@@ -1,0 +1,207 @@
+name: Promote Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_version:
+        description: 'Source version to promote (e.g., 0.1.1-dev.2)'
+        required: true
+      target_environment:
+        description: 'Target environment to promote to'
+        required: true
+        type: choice
+        options:
+          - uat
+          - sandbox
+          - production
+
+env:
+  DOCKER_REGISTRY: ghcr.io
+  DOCKER_USERNAME: ${{ github.repository_owner }}
+  DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+  IMAGE_NAME: image
+  DEPLOY_REPO_PRD: https://github.com/user/production
+  DEPLOY_REPO_UAT: https://github.com/user/uat
+  DEPLOY_REPO_SANDBOX: https://github.com/user/sandbox
+  DEPLOY_REPO_DEV: https://github.com/user/develop
+  PAT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FILE_PATH: path/to/yaml/file
+  PROPERTY_PATH_PRD: path/to/property/production
+  PROPERTY_PATH_UAT: path/to/property/uat
+  PROPERTY_PATH_SBX: path/to/property/sandbox
+
+jobs:
+  promote-version:
+    name: Promote Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify source version exists
+        run: |
+          SOURCE_VERSION="${{ github.event.inputs.source_version }}"
+          TARGET_ENV="${{ github.event.inputs.target_environment }}"
+          
+          # Check if the source tag exists
+          git fetch --tags
+          if ! git tag -l "v$SOURCE_VERSION" | grep -q "v$SOURCE_VERSION"; then
+            echo "Error: Source version v$SOURCE_VERSION does not exist"
+            exit 1
+          fi
+          
+          echo "Source version v$SOURCE_VERSION found"
+
+      - name: Calculate target version
+        id: calculate-version
+        run: |
+          SOURCE_VERSION="${{ github.event.inputs.source_version }}"
+          TARGET_ENV="${{ github.event.inputs.target_environment }}"
+          
+          # Split version into parts
+          VERSION_PARTS=(${SOURCE_VERSION//./ })
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+          
+          # Extract patch without any suffix
+          FULL_PATCH=${VERSION_PARTS[2]}
+          PATCH=$(echo $FULL_PATCH | cut -d'-' -f1)
+          
+          if [[ "$TARGET_ENV" == "production" ]]; then
+            # For production, use clean semver without suffix
+            TARGET_VERSION="$MAJOR.$MINOR.$PATCH"
+          else
+            # For other environments, add the environment suffix
+            if [[ "$TARGET_ENV" == "uat" ]]; then
+              ENV_PREFIX="uat"
+            elif [[ "$TARGET_ENV" == "sandbox" ]]; then
+              ENV_PREFIX="sbx"
+            else
+              echo "Error: Unsupported target environment: $TARGET_ENV"
+              exit 1
+            fi
+            
+            # Get all tags that match this version with target environment prefix
+            LATEST_SUB_VERSION=$(git tag -l "$MAJOR.$MINOR.$PATCH-$ENV_PREFIX.*" | sort -V | tail -n 1)
+            
+            if [[ -z "$LATEST_SUB_VERSION" ]]; then
+              SUB_VERSION=0
+            else
+              # Extract the sub-version number
+              SUB_VERSION=$(echo $LATEST_SUB_VERSION | sed -E "s/.*-$ENV_PREFIX\.([0-9]+)$/\1/")
+              SUB_VERSION=$((SUB_VERSION + 1))
+            fi
+            
+            TARGET_VERSION="$MAJOR.$MINOR.$PATCH-$ENV_PREFIX.$SUB_VERSION"
+          fi
+          
+          echo "target_version=$TARGET_VERSION" >> $GITHUB_OUTPUT
+          echo "Target version: $TARGET_VERSION"
+
+      - name: Configure Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Pull source image and retag
+        run: |
+          SOURCE_VERSION="${{ github.event.inputs.source_version }}"
+          TARGET_VERSION="${{ steps.calculate-version.outputs.target_version }}"
+          
+          # Pull the source image
+          docker pull ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$SOURCE_VERSION
+          
+          # Tag the image with the target version
+          docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$SOURCE_VERSION ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$TARGET_VERSION
+          
+          # If promoting to production, also update the 'latest' tag
+          if [[ "${{ github.event.inputs.target_environment }}" == "production" ]]; then
+            docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$SOURCE_VERSION ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            docker push ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          fi
+          
+          # If promoting to another environment, update the 'latest-{env}' tag
+          if [[ "${{ github.event.inputs.target_environment }}" != "production" ]]; then
+            docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$SOURCE_VERSION ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ github.event.inputs.target_environment }}
+            docker push ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ github.event.inputs.target_environment }}
+          fi
+          
+          # Push the new version tag
+          docker push ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$TARGET_VERSION
+      
+      - name: Create Git Tag
+        run: |
+          TARGET_VERSION="${{ steps.calculate-version.outputs.target_version }}"
+          
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a v$TARGET_VERSION -m "Promoted to v$TARGET_VERSION from ${{ github.event.inputs.source_version }}"
+          git push origin v$TARGET_VERSION
+
+      # Set the correct deployment repository based on target environment
+      - name: Set deployment repository
+        id: set-deploy-repo
+        run: |
+          TARGET_ENV="${{ github.event.inputs.target_environment }}"
+          
+          if [[ "$TARGET_ENV" == "production" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_PRD }}" >> $GITHUB_OUTPUT
+            echo "property_path=${{ env.PROPERTY_PATH_PRD }}" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_ENV" == "uat" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_UAT }}" >> $GITHUB_OUTPUT
+            echo "property_path=${{ env.PROPERTY_PATH_UAT }}" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_ENV" == "sandbox" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_SANDBOX }}" >> $GITHUB_OUTPUT
+            echo "property_path=${{ env.PROPERTY_PATH_SBX }}" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Unsupported target environment: $TARGET_ENV"
+            exit 1
+          fi
+          
+          echo "Selected deployment repository for $TARGET_ENV: $(cat $GITHUB_OUTPUT | grep deploy_repo)"
+
+      # Checkout the deployment repository
+      - name: Update deployment repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.set-deploy-repo.outputs.deploy_repo }}
+          token: ${{ env.PAT_TOKEN }}
+          path: deploy-repo
+
+      - name: Update deployment configuration
+        run: |
+          cd deploy-repo
+          TARGET_ENV="${{ github.event.inputs.target_environment }}"
+          TARGET_VERSION="${{ steps.calculate-version.outputs.target_version }}"
+          
+          # The path to the YAML file to update
+          FILE_PATH="${{ env.FILE_PATH }}"
+          # The property path within the YAML file to update
+          PROPERTY_PATH="${{ steps.set-deploy-repo.outputs.property_path }}"
+          
+          echo "Updating file: $FILE_PATH, property: $PROPERTY_PATH with version: $TARGET_VERSION"
+          
+          # Check if file exists
+          if [ -f "$FILE_PATH" ]; then
+            # Update the image version in the deployment repo
+            sed -i "s|$PROPERTY_PATH: .*|$PROPERTY_PATH: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$TARGET_VERSION|g" "$FILE_PATH"
+            
+            # Commit and push the changes
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add "$FILE_PATH"
+            git commit -m "Promote ${{ env.IMAGE_NAME }} to v$TARGET_VERSION in $TARGET_ENV"
+            git push
+            
+            echo "Successfully updated deployment configuration"
+          else
+            echo "Error: File path $FILE_PATH not found"
+            exit 1
+          fi

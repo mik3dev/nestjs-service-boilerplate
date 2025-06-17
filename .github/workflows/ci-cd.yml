@@ -1,0 +1,233 @@
+name: CI/CD Pipeline
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  #     - master
+  #     - develop
+  #     - uat
+  #     - sandbox
+  #   paths-ignore:
+  #     - "*.md"
+  #     - ".github/**"
+  #     - "!.github/workflows/**"
+  workflow_dispatch:
+
+env:
+  DOCKER_REGISTRY: ghcr.io
+  DOCKER_USERNAME: ${{ github.repository_owner }}
+  DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+  IMAGE_NAME: image
+  DEPLOY_REPO_PRD: https://github.com/user/production
+  DEPLOY_REPO_UAT: https://github.com/user/uat
+  DEPLOY_REPO_SANDBOX: https://github.com/user/sandbox
+  DEPLOY_REPO_DEV: https://github.com/user/develop
+  PAT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FILE_PATH: path/to/yaml/file
+  PROPERTY_PATH: path/to/property
+
+jobs:
+  test:
+    name: Test Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      new_version: ${{ steps.calculate-version.outputs.new_version }}
+      branch: ${{ steps.get-branch.outputs.branch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get branch name
+        id: get-branch
+        run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get current version
+        id: package-version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Calculate new version
+        id: calculate-version
+        run: |
+          CURRENT_VERSION=${{ steps.package-version.outputs.version }}
+          BRANCH=${GITHUB_REF#refs/heads/}
+
+          # Split version into major.minor.patch
+          VERSION_PARTS=(${CURRENT_VERSION//./ })
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+
+          # Extract base patch version without any suffix
+          FULL_PATCH=${VERSION_PARTS[2]}
+          PATCH=$(echo $FULL_PATCH | cut -d'-' -f1)
+
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            # For main/master, increment patch version
+            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          else
+            # For other branches, add suffix with environment name
+            
+            # Check if we're already on a versioned branch
+            if [[ "$BRANCH" == "develop" ]]; then
+              ENV_PREFIX="dev"
+            elif [[ "$BRANCH" == "uat" ]]; then
+              ENV_PREFIX="uat"
+            elif [[ "$BRANCH" == "sandbox" ]]; then
+              ENV_PREFIX="sbx"
+            else
+              ENV_PREFIX="dev" # Default fallback
+            fi
+            
+            # Get all tags that match the current version with this environment prefix
+            git fetch --tags
+            LATEST_SUB_VERSION=$(git tag -l "$MAJOR.$MINOR.$((PATCH + 1))-$ENV_PREFIX.*" | sort -V | tail -n 1)
+            
+            if [[ -z "$LATEST_SUB_VERSION" ]]; then
+              SUB_VERSION=0
+            else
+              # Extract the sub-version number
+              SUB_VERSION=$(echo $LATEST_SUB_VERSION | sed -E "s/.*-$ENV_PREFIX\.([0-9]+)$/\1/")
+              SUB_VERSION=$((SUB_VERSION + 1))
+            fi
+            
+            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))-$ENV_PREFIX.$SUB_VERSION"
+          fi
+
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Update package.json version
+        run: |
+          npm version ${{ steps.calculate-version.outputs.new_version }} --no-git-tag-version --allow-same-version
+
+      - name: Configure Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.calculate-version.outputs.new_version }}
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ steps.get-branch.outputs.branch }}
+          cache-from: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+      - name: Create Git Tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a v${{ steps.calculate-version.outputs.new_version }} -m "Release v${{ steps.calculate-version.outputs.new_version }}"
+          git push origin v${{ steps.calculate-version.outputs.new_version }}
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Determine which deployment repository to use based on branch
+      - name: Set deployment repository
+        id: set-deploy-repo
+        run: |
+          BRANCH="${{ needs.build.outputs.branch }}"
+          echo "Branch: $BRANCH"
+          
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_PRD }}" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH" == "uat" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_UAT }}" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH" == "sandbox" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_SANDBOX }}" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH" == "develop" ]]; then
+            echo "deploy_repo=${{ env.DEPLOY_REPO_DEV }}" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_repo=${{ env.DEPLOY_REPO_DEV }}" >> $GITHUB_OUTPUT
+            echo "Warning: Using develop deployment repository as fallback for branch: $BRANCH"
+          fi
+          
+          echo "Selected deployment repository: $(cat $GITHUB_OUTPUT | grep deploy_repo)"
+
+      # Checkout the deployment repository
+      - name: Update deployment repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.set-deploy-repo.outputs.deploy_repo }}
+          token: ${{ env.PAT_TOKEN }}
+          path: deploy-repo
+
+      - name: Update deployment configuration
+        run: |
+          cd deploy-repo
+          # The path to the YAML file to update
+          FILE_PATH="${{ env.FILE_PATH }}"
+          # The property path within the YAML file to update
+          PROPERTY_PATH="${{ env.PROPERTY_PATH }}"
+          # The new version from the build job
+          NEW_VERSION="${{ needs.build.outputs.new_version }}"
+          
+          echo "Updating file: $FILE_PATH, property: $PROPERTY_PATH with version: $NEW_VERSION"
+
+          # Check if file exists
+          if [ -f "$FILE_PATH" ]; then
+            # Use sed to update the YAML property at the specified path
+            sed -i "s|$PROPERTY_PATH: .*|$PROPERTY_PATH: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:$NEW_VERSION|g" "$FILE_PATH"
+            
+            # Commit and push the changes
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add "$FILE_PATH"
+            git commit -m "Update ${{ env.IMAGE_NAME }} to v$NEW_VERSION"
+            git push
+            
+            echo "Successfully updated deployment configuration"
+          else
+            echo "Error: File path $FILE_PATH not found"
+            exit 1
+          fi
