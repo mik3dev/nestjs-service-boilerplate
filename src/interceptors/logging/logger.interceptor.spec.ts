@@ -2,10 +2,10 @@ import { CallHandler, ExecutionContext } from '@nestjs/common';
 import { Observable, of, throwError, lastValueFrom } from 'rxjs';
 
 type LoggerMock = { debug: jest.Mock; error: jest.Mock };
-import { LoggerInterceptor } from './logger.interceptor';
+import { LoggingInterceptor } from './logger.interceptor';
 
-describe('LoggerInterceptor', () => {
-  let interceptor: LoggerInterceptor;
+describe('LoggingInterceptor', () => {
+  let interceptor: LoggingInterceptor;
   let logger: LoggerMock;
 
   // Reusable mocks
@@ -35,7 +35,7 @@ describe('LoggerInterceptor', () => {
   };
 
   beforeEach(() => {
-    interceptor = new LoggerInterceptor();
+    interceptor = new LoggingInterceptor();
     // Stub the internal logger to avoid noisy console output and to allow expectations
     logger = {
       debug: jest.fn(),
