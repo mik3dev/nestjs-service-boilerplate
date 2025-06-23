@@ -1,7 +1,6 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { AppService } from './app.service';
 import { GetUser, JwtClientAuthGuard } from 'nestjs-authentication-module';
-import { UserPayload } from './interfaces/user-payload.interface';
 
 @Controller()
 export class AppController {
@@ -14,7 +13,7 @@ export class AppController {
 
   @UseGuards(JwtClientAuthGuard)
   @Get('auth/me')
-  me(@GetUser<UserPayload>() user: UserPayload) {
+  me(@GetUser<Record<string, unknown>>() user: Record<string, unknown>) {
     return user;
   }
 }
